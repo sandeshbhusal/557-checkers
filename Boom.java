@@ -25,7 +25,6 @@ public class Boom {
             return evalBoardForPlayer(state, maxplayer);
 
         double score = 0.0;
-        // If depth is not 0, we start with minmax.
         if (state.player == maxplayer) {
             score = -Double.MAX_VALUE;
             for (int i = 0; i < state.numLegalMoves; i++) {
@@ -127,23 +126,25 @@ public class Boom {
             for (x = 0; x < 8; x++) {
                 if (x % 2 != y % 2 && !BoomSupport.empty(state.board[y][x])) {
                     char ch = state.board[y][x];
-                    if (BoomSupport.piece(ch)) {
+                    if (!BoomSupport.empty(ch)) {
                         if (BoomSupport.king(ch))
                             if (BoomSupport.color(ch) == player)
                                 maxscore += 2;
                             else
-                                maxscore -= 2;
+                                maxscore = maxscore;
                         else
-                            if (BoomSupport.color(ch) == player)
+                            if(BoomSupport.color(ch) == player)
                                 maxscore += 1;
-                            else
-                                maxscore -= 1;
-                    }   
+                        // else
+                        // maxscore -= 1;
+                    }
                 }
             }
 
+        printBoard(state);
+        System.err.println(
+                "Score is " + maxscore + " and player is " + state.player + " for maxplayer " + player + "\n--------");
         return maxscore;
-
     }
 
     /*
