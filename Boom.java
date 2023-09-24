@@ -20,7 +20,7 @@ public class Boom {
         BoomSupport.FindLegalMoves(state);
     }
 
-    static double minmax(State state, int depth, int maxplayer) {
+    static double minmax(State state, int depth, int maxplayer, double alpha, double beta) {
         if (depth-- == 0)
             return evalBoardForPlayer(state, maxplayer);
 
@@ -32,9 +32,12 @@ public class Boom {
                 State nexState = new State(state);
                 PerformMove(nexState, i);
 
-                double score_here = minmax(nexState, depth, maxplayer);
-                if (score_here > score)
-                    score = score_here;
+                double score_here = minmax(nexState, depth, maxplayer, alpha, beta);
+                score = Double.max(score, score_here);
+                alpha = Double.max(alpha, score);
+
+                if (beta <= alpha)
+                    break;
             }
         } else {
             score = Double.MAX_VALUE;
@@ -42,9 +45,12 @@ public class Boom {
                 State nexState = new State(state);
                 PerformMove(nexState, i);
 
-                double score_here = minmax(nexState, depth, maxplayer);
-                if (score_here < score)
-                    score = score_here;
+                double score_here = minmax(nexState, depth, maxplayer, alpha, beta);
+                score = Double.min(score, score_here);
+                beta = Double.min(score, score_here);
+
+                if (beta <= alpha)
+                    break;
             }
         }
         return score;
@@ -70,7 +76,7 @@ public class Boom {
             State nextState = new State(state);
             PerformMove(nextState, i);
 
-            double score = minmax(nextState, 5, player);
+            double score = minmax(nextState, 5, player, -Double.MAX_VALUE, Double.MAX_VALUE);
             if (score > bestMoveScore) {
                 bestMoveScore = score;
                 myBestMoveIndex = i;
