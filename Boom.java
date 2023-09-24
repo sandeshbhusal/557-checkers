@@ -24,35 +24,34 @@ public class Boom {
         if (depth-- == 0)
             return evalBoardForPlayer(state, maxplayer);
 
-        double score = 0.0;
         if (state.player == maxplayer) {
-            score = -Double.MAX_VALUE;
             for (int i = 0; i < state.numLegalMoves; i++) {
                 State nexState = new State(state);
                 PerformMove(nexState, i);
 
                 double score_here = minmax(nexState, depth, maxplayer, alpha, beta);
-                score = Double.max(score, score_here);
-                alpha = Double.max(alpha, score);
+                alpha = Double.max(alpha, score_here);
 
                 if (beta <= alpha)
-                    break;
+                    return beta;
             }
+
+            return alpha;
         } else {
-            score = Double.MAX_VALUE;
+            // score = Double.MAX_VALUE;
             for (int i = 0; i < state.numLegalMoves; i++) {
                 State nexState = new State(state);
                 PerformMove(nexState, i);
 
                 double score_here = minmax(nexState, depth, maxplayer, alpha, beta);
-                score = Double.min(score, score_here);
-                beta = Double.min(score, score_here);
+                beta = Double.min(score_here, beta);
 
                 if (beta <= alpha)
-                    break;
+                    return alpha;
             }
+
+            return beta;
         }
-        return score;
     }
 
     /* Employ your favorite search to find the best move. This code is an example */
@@ -64,7 +63,7 @@ public class Boom {
     /* and the PerformMove function */
     public static void FindBestMove(int player, char[][] board, char[] bestmove) {
         int myBestMoveIndex;
-        double bestMoveScore = 0;
+        double bestMoveScore = -Double.MAX_VALUE;
 
         State state = new State(); // , nextstate;
         setupBoardState(state, player, board);
@@ -131,17 +130,17 @@ public class Boom {
                             if (BoomSupport.color(ch) == player)
                                 maxscore += 2;
                             else
-                                maxscore = maxscore;
+                                maxscore -= 2;
                         else
                             if(BoomSupport.color(ch) == player)
                                 maxscore += 1;
-                        // else
-                        // maxscore -= 1;
+                            else 
+                                maxscore -= 1;
                     }
                 }
             }
 
-        printBoard(state);
+        // printBoard(state);
         System.err.println(
                 "Score is " + maxscore + " and player is " + state.player + " for maxplayer " + player + "\n--------");
         return maxscore;
