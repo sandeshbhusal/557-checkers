@@ -29,6 +29,8 @@ double centercount;
 double stuckcount;
 double backrowmultiplier;
 
+volatile int ids_retval = 0;
+
 int randomseltoggle = 0; // Random selection toggle.
 
 static inline double dmax(double a, double b)
@@ -367,40 +369,50 @@ void *id_search(void *args)
 
     double bestMoveScore = -DBL_MAX;
     int depth = 5;
-    while (depth++)
+    int bestmovesarr[100];
+    int bestmovescount = 0;
+    while (depth++ < 6)
     {
-        int bestmovesarr[100];
-        int bestmovescount = 0;
         int bestmoveatdepth = 0;
         fprintf(stderr, "Reached depth=%d\n", depth);
         fprintf(stderr, "Game eval on default: %f\n", evalRat(&state, player));
         fprintf(stderr, "@@@@@@@@\nHave %d moves to explore for player %d\n", state.numLegalMoves, player);
+        // Shuffle the numLegalMoves list.
+        int *numlegalmoves = (int*) calloc(sizeof(int), state.numLegalMoves);
+        for (int i = 0; i < state.numLegalMoves; i++){
+            numlegalmoves[i] = i;
+        }
+        for (int i =0; i < state.numLegalMoves; i++){
+            for (int j = 0; j < state.numLegalMoves; j++){
+                int i1 = rand() % state.numLegalMoves, i2 = rand() % state.numLegalMoves;
+                int t = numlegalmoves[i1];
+                numlegalmoves[i1] = numlegalmoves[i2];
+                numlegalmoves[i2] = t;
+            }
+        }
+        // End of shuffle.
         for (int i = 0; i < state.numLegalMoves; i++)
         {
             State newState;
             memcpy(&newState, &state, sizeof(struct State));
-            performMove(&newState, i);
+            performMove(&newState, numlegalmoves[i]);
 
             double score = minmax_ab(newState, player, depth, -DBL_MAX, DBL_MAX);
             fprintf(stderr, "Score for move %d is %f\n", i, score);
             if (score > bestMoveScore)
             {
                 bestMoveScore = score;
-                bestmoveatdepth = i;
-                bestmovesarr[bestmovescount++] = i;
+                bestmoveatdepth = numlegalmoves[i];
+                bestmovesarr[bestmovescount++] = numlegalmoves[i];
             }
         }
 
-        *bestmoveindex = bestmoveatdepth;
-        // if (bestmovescount > 1 && randomseltoggle)
-        // {
-        //     int ranom = rand() % 2;
-        //     *bestmoveindex = bestmovesarr[ranom];
-        // }
-        // }
-
-        fprintf(stderr, "------\nSelecting move %ls as the best move for player %d with score %f\n-----\n", bestmoveindex, player, bestMoveScore);
+        if (bestmoveindex != NULL)
+            *bestmoveindex = bestmoveatdepth;
+        else
+            fprintf(stderr, "Ptr is null, nothing allocated??\n");
     }
+    fprintf(stderr, "------\nSelecting move %d as the best move for player %d with score %f\n-----\n", *bestmoveindex, player, bestMoveScore);
 }
 
 // Just responsible for actually triggering the IDS thread
@@ -435,9 +447,6 @@ void FindBestMove(int player, char board[8][8], char *bestmove)
     fprintf(stderr, "Printing board state test:\n");
     printBoard(&state);
 
-    // Initialize the best move to 0 for now ( TODO: Check after changing this ).
-    volatile int ids_retval = 0;
-
     // Create args.
     IDSArgs_t arguments = {
         .bestMove = &ids_retval,
@@ -445,13 +454,12 @@ void FindBestMove(int player, char board[8][8], char *bestmove)
         .state = state,
         .maxdepth = 100};
 
-    pthread_t child_thread;
-
-    // id_search((void *)&arguments);
-    pthread_create(&child_thread, NULL, id_search, &arguments);
-    sleep(SecPerMove);
-    int retval = pthread_cancel(child_thread);
-    fprintf(stderr, "Threead cancel return value; %d\n", retval);
+    id_search((void *)&arguments);
+    // pthread_t ids_thread;
+    // pthread_create(&ids_thread, NULL, id_search, &arguments);
+    // sleep(1);
+    // while (pthread_cancel(ids_thread) != 0); // Loop until thread cancels.
+    fprintf(stderr, "ids search returned %d as best move.\n-----\n", ids_retval);
 
     safeCopy(bestmove, state.movelist[ids_retval], MaxMoveLength, MoveLength(state.movelist[ids_retval]));
 }
