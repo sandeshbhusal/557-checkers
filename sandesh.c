@@ -7,9 +7,23 @@
 #include <time.h>
 #include <float.h>
 #include <pthread.h>
+#include <setjmp.h>
+#include <signal.h>
 #include "myprog.h"
 #include "defs.h"
 #include "playerHelper.c"
+
+pthread_mutex_t movelock;
+jmp_buf env;
+typedef struct IDSArgs
+{
+    int player;             // Maximizing player.
+    State state;            // State input
+    volatile int *bestMove; // The best-move int to write to.
+    clock_t start;          // Max depth to iteratively search upto.
+} IDSArgs_t;
+
+IDSArgs_t arguments;
 
 /* copy numbytes from src to destination
    before the copy happens the destSize bytes of the destination array is set to 0s
@@ -18,7 +32,10 @@
 static inline double dmax(double a, double b);
 static inline double dmin(double a, double b);
 static inline double dabs(double a);
+static inline int timeover();
 double evalRat(struct State *state, int maxplayer);
+static inline void reset_timer();
+static inline void check_return();
 static inline int isExposed(char board[8][8], int x, int y, int color);
 
 double piecediff;
@@ -30,6 +47,7 @@ double stuckcount;
 double backrowmultiplier;
 
 volatile int ids_retval = 0;
+struct timespec timer;
 
 int randomseltoggle = 0; // Random selection toggle.
 
@@ -52,6 +70,29 @@ static inline double dabs(double a)
     if (a < 0)
         return -a;
     return a;
+}
+
+static inline int timeover()
+{
+    struct timespec current_time;
+    clock_gettime(CLOCK_REALTIME, &current_time);
+    double elapsed_time = difftime(current_time.tv_sec, timer.tv_sec) +
+                          1e-9 * (current_time.tv_nsec - timer.tv_nsec);
+    return elapsed_time > SecPerMove;
+}
+
+static inline void reset_timer()
+{
+    clock_gettime(CLOCK_REALTIME, &timer);
+}
+
+static inline void check_return()
+{
+    if (timeover())
+    {
+        reset_timer();
+        longjmp(env, 0);
+    }
 }
 
 void safeCopy(char *dest, char *src, int destSize, int numbytes)
@@ -182,6 +223,7 @@ inline int isExposed(char board[8][8], int x, int y, int color)
 
 double evalRat(struct State *state, int maxplayer)
 {
+    check_return();
     // If it's a piece, the piece should be encouraged to make king.
     // if it's a king then it should be encouraged to move towards the center
     // of the board.
@@ -218,7 +260,9 @@ double evalRat(struct State *state, int maxplayer)
                     p1positionsx[p1posindex++] = x;
                     p1positionsy[p1posindex++] = y;
                     if (y == 0)
-                        p1backrow += 1;
+                        p1backrow += 5;
+                    if (y == 1)
+                        p1backrow += 2;
 
                     if (king(state->board[y][x]))
                     {
@@ -243,7 +287,10 @@ double evalRat(struct State *state, int maxplayer)
                     p2positionsx[p2posindex++] = x;
                     p2positionsy[p2posindex++] = y;
                     if (y == 7)
-                        p2backrow += 1;
+                        p2backrow += 5;
+                    if (y == 6)
+                        p2backrow += 2;
+
                     if (king(state->board[y][x]))
                     {
                         p2kings++;
@@ -283,38 +330,37 @@ double evalRat(struct State *state, int maxplayer)
 
     double score = 0.0;
 
-    if (p1piece + p2piece < 12) // Decrease back-row pressure.
-    {
-        backrowmultiplier = 400.0;
-    }
-
     if (maxplayer == 1 && p2piece < 6)
         randomseltoggle = 1;
     if (maxplayer == 2 && p1piece < 6)
         randomseltoggle = 1;
 
+    if (randomseltoggle) // Decrease back-row pressure.
+        backrowmultiplier = 50.0;
+
     if (randomseltoggle && maxplayer == 1)
-        score += p1diff;
+        score += p1diff * clusterscore;
 
     if (randomseltoggle && maxplayer == 2)
-        score += p2diff;
+        score += p2diff * clusterscore;
 
     // double totalpieces = p1piece + p2piece;
     // p1piece = p1piece / totalpieces;
     // p2piece = p2piece / totalpieces;
 
-    score = ((double)p1piece - (double)p2piece) * piecediff + ((double)p1kings - (double)p2kings) * kingsdiff - ((double)p1exposed - (double)p2exposed) * exposeddiff;
+    score += ((double)p1piece - (double)p2piece) * piecediff + ((double)p1kings - (double)p2kings) * kingsdiff - ((double)p1exposed - (double)p2exposed) * exposeddiff + ((double)p1backrow - (double)p2backrow) * backrowmultiplier;
 
     // score += (-(double)p1exposed + (double)p2exposed) * 0;       // Penalize heavily for exposed pieces.
     // score += ((double)p1rowpieces - (double) p2rowpieces);
     if (maxplayer == 1)
-        return score - (double)p1stuckkings * stuckcount + (double)p1center * centercount + p1backrow * backrowmultiplier - p2kings * 100;
+        return score - (double)p1stuckkings * stuckcount + (double)p1center * centercount - p2kings * 100;
     else
-        return -score - (double)p2stuckkings * stuckcount + (double)p2center * centercount + p2backrow * backrowmultiplier - p1kings * 100;
+        return -score - (double)p2stuckkings * stuckcount + (double)p2center * centercount - p1kings * 100;
 }
 
 double minmax_ab(struct State state, int maxplayer, int depth, double alpha, double beta)
 {
+    check_return();
     if (depth-- == 0)
     {
         return evalRat(&state, maxplayer);
@@ -348,42 +394,43 @@ double minmax_ab(struct State state, int maxplayer, int depth, double alpha, dou
 
     return score;
 }
-
-typedef struct IDSArgs
-{
-    int player;             // Maximizing player.
-    State state;            // State input
-    volatile int *bestMove; // The best-move int to write to.
-    int maxdepth;           // Max depth to iteratively search upto.
-} IDSArgs_t;
+void id_search(IDSArgs_t args);
 
 // Agent with iterative-deepening search that definitely
 // exhausts the search budget of 3 seconds.
-void *id_search(void *args)
+void id_search(IDSArgs_t arguments)
 {
-    IDSArgs_t *arguments = (IDSArgs_t *)args;
+    State state = arguments.state;
+    int player = arguments.player;
+    volatile int *bestmoveindex = arguments.bestMove;
 
-    State state = arguments->state;
-    int player = arguments->player;
-    volatile int *bestmoveindex = arguments->bestMove;
-
-    double bestMoveScore = -DBL_MAX;
     int depth = 5;
-    int bestmovesarr[100];
-    int bestmovescount = 0;
-    while (depth++ < 6)
+    double bestMoveScore;
+
+    while (depth++ < 50)
     {
+        // Check at every depth if time is over.
+        check_return();
+
+        int bestmovesarr[100];
+        int bestmovescount = 0;
+        bestMoveScore = -DBL_MAX;
         int bestmoveatdepth = 0;
-        fprintf(stderr, "Reached depth=%d\n", depth);
+
+        fprintf(stderr, "Reached depth=%d;\n", depth);
         fprintf(stderr, "Game eval on default: %f\n", evalRat(&state, player));
         fprintf(stderr, "@@@@@@@@\nHave %d moves to explore for player %d\n", state.numLegalMoves, player);
+
         // Shuffle the numLegalMoves list.
-        int *numlegalmoves = (int*) calloc(sizeof(int), state.numLegalMoves);
-        for (int i = 0; i < state.numLegalMoves; i++){
+        int *numlegalmoves = (int *)calloc(sizeof(int), state.numLegalMoves);
+        for (int i = 0; i < state.numLegalMoves; i++)
+        {
             numlegalmoves[i] = i;
         }
-        for (int i =0; i < state.numLegalMoves; i++){
-            for (int j = 0; j < state.numLegalMoves; j++){
+        for (int i = 0; i < state.numLegalMoves; i++)
+        {
+            for (int j = 0; j < state.numLegalMoves; j++)
+            {
                 int i1 = rand() % state.numLegalMoves, i2 = rand() % state.numLegalMoves;
                 int t = numlegalmoves[i1];
                 numlegalmoves[i1] = numlegalmoves[i2];
@@ -398,21 +445,26 @@ void *id_search(void *args)
             performMove(&newState, numlegalmoves[i]);
 
             double score = minmax_ab(newState, player, depth, -DBL_MAX, DBL_MAX);
-            fprintf(stderr, "Score for move %d is %f\n", i, score);
-            if (score > bestMoveScore)
+            fprintf(stderr, "Score for move %d is %f\n", numlegalmoves[i], score);
+            if (score >= bestMoveScore)
             {
                 bestMoveScore = score;
                 bestmoveatdepth = numlegalmoves[i];
                 bestmovesarr[bestmovescount++] = numlegalmoves[i];
             }
         }
-
+        fprintf(stderr, "Best move for this depth is %d\n", bestmoveatdepth);
         if (bestmoveindex != NULL)
+        {
+            pthread_mutex_lock(&movelock);
             *bestmoveindex = bestmoveatdepth;
+            pthread_mutex_unlock(&movelock);
+        }
         else
             fprintf(stderr, "Ptr is null, nothing allocated??\n");
+
+        fprintf(stderr, "------\nSelecting move %d as the best move for player %d with score %f at depth %d\n-----\n", *bestmoveindex, player, bestMoveScore, depth);
     }
-    fprintf(stderr, "------\nSelecting move %d as the best move for player %d with score %f\n-----\n", *bestmoveindex, player, bestMoveScore);
 }
 
 // Just responsible for actually triggering the IDS thread
@@ -427,6 +479,7 @@ void FindBestMove(int player, char board[8][8], char *bestmove)
     // int centercount;
     // int stuckcount;
     // int backrowmultiplier;
+    reset_timer();
 
     FILE *fp = fopen("./params.txt", "r+");
     if (fp == NULL)
@@ -440,6 +493,7 @@ void FindBestMove(int player, char board[8][8], char *bestmove)
         fscanf(fp, "%lf %lf %lf %lf %lf %lf %lf", &piecediff, &exposeddiff, &clusterscore, &kingsdiff, &centercount, &stuckcount, &backrowmultiplier);
         fprintf(stderr, "Initial params:\n-----\n piece_diff: %f \n exposed_diff: %f \n cluster_score: %f \n kings_diff: %f \n center_count: %f\n stuck_count: %f \n backrow_mul: %f \n ----- \n", piecediff, exposeddiff, clusterscore, kingsdiff, centercount, stuckcount, backrowmultiplier);
     }
+    fclose(fp);
 
     struct State state;
     setupBoardState(&state, player, board);
@@ -448,18 +502,22 @@ void FindBestMove(int player, char board[8][8], char *bestmove)
     printBoard(&state);
 
     // Create args.
-    IDSArgs_t arguments = {
-        .bestMove = &ids_retval,
-        .player = player,
-        .state = state,
-        .maxdepth = 100};
+    arguments.bestMove = &ids_retval;
+    arguments.player = player;
+    arguments.state = state;
+    arguments.start = start;
 
-    id_search((void *)&arguments);
-    // pthread_t ids_thread;
-    // pthread_create(&ids_thread, NULL, id_search, &arguments);
-    // sleep(1);
-    // while (pthread_cancel(ids_thread) != 0); // Loop until thread cancels.
-    fprintf(stderr, "ids search returned %d as best move.\n-----\n", ids_retval);
-
-    safeCopy(bestmove, state.movelist[ids_retval], MaxMoveLength, MoveLength(state.movelist[ids_retval]));
+    if (setjmp(env))
+    {
+        // Return of longjmp here.
+        fprintf(stderr, "ids search returned %d as best move.\n-----\n", ids_retval);
+        safeCopy(bestmove, state.movelist[ids_retval], MaxMoveLength, MoveLength(state.movelist[ids_retval]));
+    }
+    else
+    {
+        arguments.state = state;
+        arguments.start = start;
+        fprintf(stderr, "Starting ID search \n");
+        id_search(arguments);
+    }
 }
