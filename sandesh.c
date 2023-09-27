@@ -13,8 +13,6 @@
 #include "defs.h"
 #include "playerHelper.c"
 
-pthread_mutex_t movelock;
-jmp_buf env;
 typedef struct IDSArgs
 {
     int player;             // Maximizing player.
@@ -32,10 +30,7 @@ IDSArgs_t arguments;
 static inline double dmax(double a, double b);
 static inline double dmin(double a, double b);
 static inline double dabs(double a);
-static inline int timeover();
 double evalRat(struct State *state, int maxplayer);
-static inline void reset_timer();
-static inline void check_return();
 static inline int isExposed(char board[8][8], int x, int y, int color);
 
 double piecediff;
@@ -70,29 +65,6 @@ static inline double dabs(double a)
     if (a < 0)
         return -a;
     return a;
-}
-
-static inline int timeover()
-{
-    struct timespec current_time;
-    clock_gettime(CLOCK_REALTIME, &current_time);
-    double elapsed_time = difftime(current_time.tv_sec, timer.tv_sec) +
-                          1e-9 * (current_time.tv_nsec - timer.tv_nsec);
-    return elapsed_time > SecPerMove;
-}
-
-static inline void reset_timer()
-{
-    clock_gettime(CLOCK_REALTIME, &timer);
-}
-
-static inline void check_return()
-{
-    if (timeover())
-    {
-        reset_timer();
-        longjmp(env, 0);
-    }
 }
 
 void safeCopy(char *dest, char *src, int destSize, int numbytes)
@@ -139,7 +111,7 @@ void printBoard(struct State *state)
     }
 }
 
-double evalCluster(struct State *state, int maxplayer)
+double evalSupportPieces(struct State *state, int clusterforplayer)
 {
     // Evaluate the "cluster" metric for the given board state.
     int p1cluster = 0, p2cluster = 0;
@@ -195,7 +167,9 @@ double evalCluster(struct State *state, int maxplayer)
         }
     }
 
-    return (double)p1cluster / (double)p2cluster;
+    if (clusterforplayer == 1)
+        return p1cluster;
+    return p2cluster;
 }
 
 inline int isExposed(char board[8][8], int x, int y, int color)
@@ -213,20 +187,16 @@ inline int isExposed(char board[8][8], int x, int y, int color)
         {
             if (color(board[newY][newX]) == color)
             {
-                return 0; // There is a friendly piece adjacent, so it's not exposed
+                return 0;
             }
         }
     }
 
-    return 1; // No friendly pieces adjacent, so it's exposed
+    return 1;
 }
 
 double evalRat(struct State *state, int maxplayer)
 {
-    check_return();
-    // If it's a piece, the piece should be encouraged to make king.
-    // if it's a king then it should be encouraged to move towards the center
-    // of the board.
     double p1piece = 0;
     double p2piece = 0;
     int p1kings = 0;
@@ -238,7 +208,6 @@ double evalRat(struct State *state, int maxplayer)
     int p1exposed = 0;
     int p2exposed = 0;
 
-    // Don't move pieces from back row for as long as possible.
     int p1backrow = 0;
     int p2backrow = 0;
 
@@ -312,7 +281,8 @@ double evalRat(struct State *state, int maxplayer)
         }
     }
 
-    // Run a loop to make the pieces "come closer".
+    // Run a loop to calculate distance between friend pieces,
+    // so that they can "come closer".
     int p1diff = 0;
     int p2diff = 0;
     for (int i = 0; i < p1posindex; i++)
@@ -335,32 +305,22 @@ double evalRat(struct State *state, int maxplayer)
     if (maxplayer == 2 && p1piece < 6)
         randomseltoggle = 1;
 
-    if (randomseltoggle) // Decrease back-row pressure.
-        backrowmultiplier = 50.0;
-
     if (randomseltoggle && maxplayer == 1)
         score += p1diff * clusterscore;
 
     if (randomseltoggle && maxplayer == 2)
         score += p2diff * clusterscore;
 
-    // double totalpieces = p1piece + p2piece;
-    // p1piece = p1piece / totalpieces;
-    // p2piece = p2piece / totalpieces;
-
     score += ((double)p1piece - (double)p2piece) * piecediff + ((double)p1kings - (double)p2kings) * kingsdiff - ((double)p1exposed - (double)p2exposed) * exposeddiff + ((double)p1backrow - (double)p2backrow) * backrowmultiplier;
 
-    // score += (-(double)p1exposed + (double)p2exposed) * 0;       // Penalize heavily for exposed pieces.
-    // score += ((double)p1rowpieces - (double) p2rowpieces);
     if (maxplayer == 1)
-        return score - (double)p1stuckkings * stuckcount + (double)p1center * centercount - p2kings * 100;
+        return score + (double)p1center * centercount - p2kings * 100 + evalSupportPieces(state, 1);
     else
-        return -score - (double)p2stuckkings * stuckcount + (double)p2center * centercount - p1kings * 100;
+        return -score + (double)p2center * centercount - p1kings * 100 + evalSupportPieces(state, 2);
 }
 
 double minmax_ab(struct State state, int maxplayer, int depth, double alpha, double beta)
 {
-    check_return();
     if (depth-- == 0)
     {
         return evalRat(&state, maxplayer);
@@ -396,8 +356,6 @@ double minmax_ab(struct State state, int maxplayer, int depth, double alpha, dou
 }
 void id_search(IDSArgs_t args);
 
-// Agent with iterative-deepening search that definitely
-// exhausts the search budget of 3 seconds.
 void id_search(IDSArgs_t arguments)
 {
     State state = arguments.state;
@@ -407,11 +365,8 @@ void id_search(IDSArgs_t arguments)
     int depth = 5;
     double bestMoveScore;
 
-    while (depth++ < 50)
+    while (depth++ < 7)
     {
-        // Check at every depth if time is over.
-        check_return();
-
         int bestmovesarr[100];
         int bestmovescount = 0;
         bestMoveScore = -DBL_MAX;
@@ -438,6 +393,7 @@ void id_search(IDSArgs_t arguments)
             }
         }
         // End of shuffle.
+
         for (int i = 0; i < state.numLegalMoves; i++)
         {
             State newState;
@@ -456,12 +412,10 @@ void id_search(IDSArgs_t arguments)
         fprintf(stderr, "Best move for this depth is %d\n", bestmoveatdepth);
         if (bestmoveindex != NULL)
         {
-            pthread_mutex_lock(&movelock);
             *bestmoveindex = bestmoveatdepth;
-            pthread_mutex_unlock(&movelock);
         }
         else
-            fprintf(stderr, "Ptr is null, nothing allocated??\n");
+            fprintf(stderr, "The bestmoveindex ptr is null. This should not happen.\n");
 
         fprintf(stderr, "------\nSelecting move %d as the best move for player %d with score %f at depth %d\n-----\n", *bestmoveindex, player, bestMoveScore, depth);
     }
@@ -479,7 +433,6 @@ void FindBestMove(int player, char board[8][8], char *bestmove)
     // int centercount;
     // int stuckcount;
     // int backrowmultiplier;
-    reset_timer();
 
     FILE *fp = fopen("./params.txt", "r+");
     if (fp == NULL)
@@ -507,17 +460,7 @@ void FindBestMove(int player, char board[8][8], char *bestmove)
     arguments.state = state;
     arguments.start = start;
 
-    if (setjmp(env))
-    {
-        // Return of longjmp here.
-        fprintf(stderr, "ids search returned %d as best move.\n-----\n", ids_retval);
-        safeCopy(bestmove, state.movelist[ids_retval], MaxMoveLength, MoveLength(state.movelist[ids_retval]));
-    }
-    else
-    {
-        arguments.state = state;
-        arguments.start = start;
-        fprintf(stderr, "Starting ID search \n");
-        id_search(arguments);
-    }
+    id_search(arguments);
+    fprintf(stderr, "ids search returned %d as best move.\n-----\n", ids_retval);
+    safeCopy(bestmove, state.movelist[ids_retval], MaxMoveLength, MoveLength(state.movelist[ids_retval]));
 }

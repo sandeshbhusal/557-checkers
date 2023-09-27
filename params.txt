@@ -1,0 +1,9 @@
+0.0 00.0 00.0 0.0 00.0 00.0 20.0
+
+double piecediff;
+double exposeddiff;
+double clusterscore;
+double kingsdiff;
+double centercount;
+double stuckcount;
+double backrowmultiplier;
