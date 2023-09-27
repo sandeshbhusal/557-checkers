@@ -292,7 +292,6 @@ double evalRat(struct State *state, int maxplayer)
     for (int i = 0; i < p2posindex; i++)
         for (int j = 0; j < p2posindex; j++)
             p2diff += (p2positionsx[j] - p2positionsx[i]) * (p2positionsx[j] - p2positionsx[i]) + (p2positionsy[j] - p2positionsy[i]) * (p2positionsy[j] - p2positionsy[i]);
-    ;
 
     // Add 1 to each piece count, so that we don't have inf. division.
     p1piece += 1;
