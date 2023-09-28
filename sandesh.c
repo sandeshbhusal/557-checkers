@@ -215,118 +215,6 @@ inline int isExposed(char board[8][8], int x, int y, int color)
     return 1;
 }
 
-// double evalRat(struct State *state, int maxplayer)
-// {
-//     double p1piece = 0;
-//     double p2piece = 0;
-//     int p1kings = 0;
-//     int p2kings = 0;
-//     int p1center = 0;
-//     int p2center = 0;
-//     int p1stuckkings = 0;
-//     int p2stuckkings = 0;
-//     int p1exposed = 0;
-//     int p2exposed = 0;
-
-//     int p1backrow = 0;
-//     int p2backrow = 0;
-
-//     int p1positionsx[12];
-//     int p2positionsx[12];
-//     int p1positionsy[12];
-//     int p2positionsy[12];
-
-//     int p1posindex = 0, p2posindex = 0;
-
-//     for (int y = 0; y < 8; y++)
-//     {
-//         for (int x = 0; x < 8; x++)
-//         {
-//             if (x % 2 != y % 2 && !empty(state->board[y][x]))
-//             {
-//                 if (color(state->board[y][x]) == 1)
-//                 {
-//                     p1positionsx[p1posindex++] = x;
-//                     p1positionsy[p1posindex++] = y;
-//                     if (y < 2)
-//                         p1backrow += 2;
-
-//                     if (king(state->board[y][x]))
-//                     {
-//                         p1kings++;
-//                         if (y == 3 || y == 5)
-//                             p1center += 1;
-
-//                         if (y > 5 && (x < 2 || x > 5))
-//                             p1stuckkings += 1;
-//                     }
-//                     else
-//                     {
-//                         p1piece++;
-//                         if (y == 3 || y == 5)
-//                             p1center += 1;
-//                     }
-//                     if (isExposed(state->board, x, y, 1))
-//                         p1exposed += 1;
-//                 }
-//                 else
-//                 {
-//                     p2positionsx[p2posindex++] = x;
-//                     p2positionsy[p2posindex++] = y;
-//                     if (y < 5)
-//                         p2backrow += 1;
-
-//                     if (king(state->board[y][x]))
-//                     {
-//                         p2kings++;
-//                         if (y == 3 || y == 5)
-//                             p2center += 1;
-//                         if (y < 2 && (x < 2 || x > 5))
-//                             p2stuckkings += 1;
-//                     }
-//                     else
-//                     {
-//                         p2piece++;
-//                         if (y == 3 || y == 5)
-//                             p2center += 2;
-//                     }
-//                     if (isExposed(state->board, x, y, 2))
-//                         p2exposed += 1;
-//                 }
-//             }
-//         }
-//     }
-
-//     // Run a loop to calculate distance between friend pieces,
-//     // so that they can "come closer".
-//     int p1diff = 0;
-//     int p2diff = 0;
-//     for (int i = 0; i < p1posindex; i++)
-//         for (int j = 0; j < p1posindex; j++)
-//             p1diff += (p1positionsx[j] - p1positionsx[i]) * (p1positionsx[j] - p1positionsx[i]) + (p1positionsy[j] - p1positionsy[i]) * (p1positionsy[j] - p1positionsy[i]);
-
-//     for (int i = 0; i < p2posindex; i++)
-//         for (int j = 0; j < p2posindex; j++)
-//             p2diff += (p2positionsx[j] - p2positionsx[i]) * (p2positionsx[j] - p2positionsx[i]) + (p2positionsy[j] - p2positionsy[i]) * (p2positionsy[j] - p2positionsy[i]);
-
-//     // Add 1 to each piece count, so that we don't have inf. division.
-//     p1piece += 1;
-//     p2piece += 1;
-
-//     double score = 0.0;
-
-//     // Make my cluster smaller than the opponent's
-//     score -= p1diff * clusterscore;
-//     score += p2diff * clusterscore;
-
-//     score += ((double)p1piece - (double)p2piece) * piecediff + ((double)p1kings - (double)p2kings) * kingsdiff - ((double)p1exposed - (double)p2exposed) * exposeddiff + ((double)p1backrow - (double)p2backrow) * backrowmultiplier;
-
-//     if (maxplayer == 1)
-//         return score;
-//     else
-//         return -score;
-// }
-
 double evalRat(struct State *state, int maxplayer)
 {
     double score = 0.0;
@@ -338,6 +226,18 @@ double evalRat(struct State *state, int maxplayer)
     double p2backrow = 0.0;
     double p1exposed = 0.0;
     double p2exposed = 0.0;
+    double p1center  = 0.0;
+    double p2center  = 0.0;
+    double p1clusterdistance = 0.0;
+    double p2clusterdistance = 0.0;
+
+    double p1piecex[12];
+    double p1piecey[12];
+    double p2piecex[12];
+    double p2piecey[12];
+
+    int p1distanceidx = 0.0;
+    int p2distanceidx = 0.0;
 
     for (int y = 0; y < 8; y++)
     {
@@ -348,6 +248,12 @@ double evalRat(struct State *state, int maxplayer)
                 char ch = state->board[y][x];
                 int color = color(state->board[y][x]);
                 if (color == 1){
+                    p1piecex[p1distanceidx++] = x;
+                    p1piecey[p1distanceidx]   = y; // WARN: DO NOT INCREMENT TWICE!
+                    
+                    if (y > 2 )
+                        p1center += 1.0;
+
                     p1pieces++;
                     if(king(ch))
                         p1kings++;
@@ -362,7 +268,14 @@ double evalRat(struct State *state, int maxplayer)
                             p1exposed += 1;
 
                 } else {
+                    p2piecex[p2distanceidx++] = x;
+                    p2piecey[p2distanceidx]   = y; // WARN: See warning above.
+
                     p2pieces++;
+
+                    if (y < 5)
+                        p2center += 1.0;
+
                     if(king(ch))
                         p2kings++;
 
@@ -377,21 +290,36 @@ double evalRat(struct State *state, int maxplayer)
         }
     }
 
-    // // Increase everything (prevent inf. division) (TOGGLE ON WHILE USING RATIO HEURISTICS)
-    // p1pieces += 1;
-    // p2pieces += 1;
-    // p1kings += 1;
-    // p2kings += 1;
+    // Calculate distance.
+    for (int i = 0; i < p1distanceidx; i++)
+        for (int j = 0; j < p1distanceidx; j++) // (x1-x2) ^ 2 + (y1 - y2) ^ 2.
+            {
+                p1clusterdistance += (p1piecex[i] - p1piecex[j]) * (p1piecex[i] - p1piecex[j]);
+                p1clusterdistance += (p1piecey[i] - p1piecey[j]) * (p1piecey[i] - p1piecey[j]);
+            }
 
-    score = (p1pieces - p2pieces) * 1.2 + (p1kings - p2kings) * 1.8;
+    for (int i = 0; i < p2distanceidx; i++)
+        for (int j = 0; j < p2distanceidx; j++) // (x1-x2) ^ 2 + (y1 - y2) ^ 2.
+            {
+                p2clusterdistance += (p2piecex[i] - p2piecex[j]) * (p2piecex[i] - p2piecex[j]);
+                p2clusterdistance += (p2piecey[i] - p2piecey[j]) * (p2piecey[i] - p2piecey[j]);
+            }
 
-    // Dump everything here.
-    fprintf(stderr, "For p1, pieces=%f, kings=%f, exposed=%f, backrow=%f\n", p1pieces, p1kings, p1exposed,  p1backrow);
+
+    // Increase everything (prevent inf. division) (TOGGLE ON WHILE USING RATIO HEURISTICS)
+    p1pieces += 1;
+    p2pieces += 1;
+    p1kings += 1;
+    p2kings += 1;
+    p1center += 1;
+    p2center += 1;
+
+    // score = (p1pieces / p2pieces) * 20.0 + (p1kings - p2kings) * 1.8;
 
     if (maxplayer == 1)
-        return score + p1backrow - p1exposed;
+        return (p1pieces / p2pieces) * 20.0 + (p1center / p2center) * 10.0 + (p1kings / p2kings) * 15.0 + p1backrow * 2 - p1exposed - p1clusterdistance * 0.001;
 
-    return -score + p2backrow - p2exposed;
+    return (p2pieces/ p1pieces) * 20.0 + (p2center / p1center) * 10.0 + (p2kings / p1kings) * 15.0 + p2backrow * 2 - p2exposed - p2clusterdistance * 0.001;
 }
 
 double minmax_ab(struct State state, int maxplayer, int depth, double alpha, double beta)
