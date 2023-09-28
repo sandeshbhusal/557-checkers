@@ -29,6 +29,7 @@ IDSArgs_t arguments;
 */
 
 struct timespec timer;
+volatile int ids_retval = 0;
 
 static inline void reset_timer(struct timespec *timer)
 {
@@ -51,20 +52,7 @@ static inline double dmax(double a, double b);
 static inline double dmin(double a, double b);
 static inline double dabs(double a);
 double evalRat(struct State *state, int maxplayer);
-static inline int isExposed(char board[8][8], int x, int y, int color);
 
-double piecediff;
-double exposeddiff;
-double clusterscore;
-double kingsdiff;
-double centercount;
-double stuckcount;
-double backrowmultiplier;
-
-volatile int ids_retval = 0;
-struct timespec timer;
-
-int randomseltoggle = 0; // Random selection toggle.
 
 static inline double dmax(double a, double b)
 {
@@ -437,29 +425,7 @@ void id_search()
 // And returning results when done.
 void FindBestMove(int player, char board[8][8], char *bestmove)
 {
-    // There are some weights I read off of a file (params.txt), and try to optimize them there.
-    // int piecediff;
-    // int exposeddiff;
-    // int clusterscore;
-    // int kingsdiff;
-    // int centercount;
-    // int stuckcount;
-    // int backrowmultiplier;
     reset_timer(&timer);
-
-    FILE *fp = fopen("./params.txt", "r+");
-    if (fp == NULL)
-    {
-        fprintf(stderr, "Couldn't load params file.");
-        exit(-1);
-    }
-    else
-    {
-        // Read the file.
-        fscanf(fp, "%lf %lf %lf %lf %lf %lf %lf", &piecediff, &exposeddiff, &clusterscore, &kingsdiff, &centercount, &stuckcount, &backrowmultiplier);
-        fprintf(stderr, "Initial params:\n-----\n piece_diff: %f \n exposed_diff: %f \n cluster_score: %f \n kings_diff: %f \n center_count: %f\n stuck_count: %f \n backrow_mul: %f \n ----- \n", piecediff, exposeddiff, clusterscore, kingsdiff, centercount, stuckcount, backrowmultiplier);
-    }
-    fclose(fp);
 
     struct State state;
     setupBoardState(&state, player, board);
