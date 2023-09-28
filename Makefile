@@ -8,13 +8,14 @@ LDFLAGS         := -L/usr/lib/X11R6 -lXm -lXaw -lXmu -lXt -lX11 -lpthread
 # the checkers server.
 #CFLAGS          += -DGRAPHICS
 
-all: checkers computer
+all: checkers computer sandesh
 checkers: graphics.o
 #computer: myprog.o
 computer: player.o playerHelper.o
 	${CC} ${CPPFLAGS} ${CFLAGS} -o $@ $^
-
+sandesh: sandesh.c
+	${CC} ${CPPFLAGS} ${CFLAG} ${LDFLAGS} sandesh.c -o sandesh
 
 .PHONY: clean
 clean:	
-	@-rm checkers computer *.o
+	@-rm checkers computer sandesh *.o

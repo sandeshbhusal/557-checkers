@@ -9,6 +9,7 @@
 #include <pthread.h>
 #include <setjmp.h>
 #include <signal.h>
+#include <time.h>
 #include "myprog.h"
 #include "defs.h"
 #include "playerHelper.c"
@@ -26,6 +27,25 @@ IDSArgs_t arguments;
 /* copy numbytes from src to destination
    before the copy happens the destSize bytes of the destination array is set to 0s
 */
+
+struct timespec timer;
+
+static inline void reset_timer(struct timespec *timer)
+{
+    clock_gettime(CLOCK_MONOTONIC, timer);
+}
+
+static inline int timeup()
+{
+    struct timespec end_time;
+    reset_timer(&end_time); // Get current time.
+    double elapsed_time = (double)(end_time.tv_sec - timer.tv_sec) +
+                          (double)(end_time.tv_nsec - timer.tv_nsec) / 1e9;
+
+    if (elapsed_time >= (SecPerMove - 0.05))
+        return 1;
+    return 0;
+}
 
 static inline double dmax(double a, double b);
 static inline double dmin(double a, double b);
@@ -195,131 +215,190 @@ inline int isExposed(char board[8][8], int x, int y, int color)
     return 1;
 }
 
+// double evalRat(struct State *state, int maxplayer)
+// {
+//     double p1piece = 0;
+//     double p2piece = 0;
+//     int p1kings = 0;
+//     int p2kings = 0;
+//     int p1center = 0;
+//     int p2center = 0;
+//     int p1stuckkings = 0;
+//     int p2stuckkings = 0;
+//     int p1exposed = 0;
+//     int p2exposed = 0;
+
+//     int p1backrow = 0;
+//     int p2backrow = 0;
+
+//     int p1positionsx[12];
+//     int p2positionsx[12];
+//     int p1positionsy[12];
+//     int p2positionsy[12];
+
+//     int p1posindex = 0, p2posindex = 0;
+
+//     for (int y = 0; y < 8; y++)
+//     {
+//         for (int x = 0; x < 8; x++)
+//         {
+//             if (x % 2 != y % 2 && !empty(state->board[y][x]))
+//             {
+//                 if (color(state->board[y][x]) == 1)
+//                 {
+//                     p1positionsx[p1posindex++] = x;
+//                     p1positionsy[p1posindex++] = y;
+//                     if (y < 2)
+//                         p1backrow += 2;
+
+//                     if (king(state->board[y][x]))
+//                     {
+//                         p1kings++;
+//                         if (y == 3 || y == 5)
+//                             p1center += 1;
+
+//                         if (y > 5 && (x < 2 || x > 5))
+//                             p1stuckkings += 1;
+//                     }
+//                     else
+//                     {
+//                         p1piece++;
+//                         if (y == 3 || y == 5)
+//                             p1center += 1;
+//                     }
+//                     if (isExposed(state->board, x, y, 1))
+//                         p1exposed += 1;
+//                 }
+//                 else
+//                 {
+//                     p2positionsx[p2posindex++] = x;
+//                     p2positionsy[p2posindex++] = y;
+//                     if (y < 5)
+//                         p2backrow += 1;
+
+//                     if (king(state->board[y][x]))
+//                     {
+//                         p2kings++;
+//                         if (y == 3 || y == 5)
+//                             p2center += 1;
+//                         if (y < 2 && (x < 2 || x > 5))
+//                             p2stuckkings += 1;
+//                     }
+//                     else
+//                     {
+//                         p2piece++;
+//                         if (y == 3 || y == 5)
+//                             p2center += 2;
+//                     }
+//                     if (isExposed(state->board, x, y, 2))
+//                         p2exposed += 1;
+//                 }
+//             }
+//         }
+//     }
+
+//     // Run a loop to calculate distance between friend pieces,
+//     // so that they can "come closer".
+//     int p1diff = 0;
+//     int p2diff = 0;
+//     for (int i = 0; i < p1posindex; i++)
+//         for (int j = 0; j < p1posindex; j++)
+//             p1diff += (p1positionsx[j] - p1positionsx[i]) * (p1positionsx[j] - p1positionsx[i]) + (p1positionsy[j] - p1positionsy[i]) * (p1positionsy[j] - p1positionsy[i]);
+
+//     for (int i = 0; i < p2posindex; i++)
+//         for (int j = 0; j < p2posindex; j++)
+//             p2diff += (p2positionsx[j] - p2positionsx[i]) * (p2positionsx[j] - p2positionsx[i]) + (p2positionsy[j] - p2positionsy[i]) * (p2positionsy[j] - p2positionsy[i]);
+
+//     // Add 1 to each piece count, so that we don't have inf. division.
+//     p1piece += 1;
+//     p2piece += 1;
+
+//     double score = 0.0;
+
+//     // Make my cluster smaller than the opponent's
+//     score -= p1diff * clusterscore;
+//     score += p2diff * clusterscore;
+
+//     score += ((double)p1piece - (double)p2piece) * piecediff + ((double)p1kings - (double)p2kings) * kingsdiff - ((double)p1exposed - (double)p2exposed) * exposeddiff + ((double)p1backrow - (double)p2backrow) * backrowmultiplier;
+
+//     if (maxplayer == 1)
+//         return score;
+//     else
+//         return -score;
+// }
+
 double evalRat(struct State *state, int maxplayer)
 {
-    double p1piece = 0;
-    double p2piece = 0;
-    int p1kings = 0;
-    int p2kings = 0;
-    int p1center = 0;
-    int p2center = 0;
-    int p1stuckkings = 0;
-    int p2stuckkings = 0;
-    int p1exposed = 0;
-    int p2exposed = 0;
-
-    int p1backrow = 0;
-    int p2backrow = 0;
-
-    int p1positionsx[12];
-    int p2positionsx[12];
-    int p1positionsy[12];
-    int p2positionsy[12];
-
-    int p1posindex = 0, p2posindex = 0;
+    double score = 0.0;
+    double p1pieces = 0.0;
+    double p2pieces = 0.0;
+    double p1kings = 0.0;
+    double p2kings = 0.0;
+    double p1backrow = 0.0;
+    double p2backrow = 0.0;
+    double p1exposed = 0.0;
+    double p2exposed = 0.0;
 
     for (int y = 0; y < 8; y++)
     {
         for (int x = 0; x < 8; x++)
         {
-            if (x % 2 != y % 2 && !empty(state->board[y][x]))
+            if (!empty(state->board[y][x]))
             {
-                if (color(state->board[y][x]) == 1)
-                {
-                    p1positionsx[p1posindex++] = x;
-                    p1positionsy[p1posindex++] = y;
-                    if (y == 0)
-                        p1backrow += 5;
-                    if (y == 1)
-                        p1backrow += 2;
-
-                    if (king(state->board[y][x]))
-                    {
+                char ch = state->board[y][x];
+                int color = color(state->board[y][x]);
+                if (color == 1){
+                    p1pieces++;
+                    if(king(ch))
                         p1kings++;
-                        if (y == 3 || y == 5)
-                            p1center += 3;
 
-                        if (y > 5 && (x < 2 || x > 5))
-                            p1stuckkings += 1;
-                    }
-                    else
-                    {
-                        p1piece++;
-                        if (y == 3 || y == 5)
-                            p1center += 2;
-                    }
-                    if (isExposed(state->board, x, y, 1))
-                        p1exposed += 1;
-                }
-                else
-                {
-                    p2positionsx[p2posindex++] = x;
-                    p2positionsy[p2posindex++] = y;
-                    if (y == 7)
-                        p2backrow += 5;
-                    if (y == 6)
-                        p2backrow += 2;
+                    if (y < 2)
+                        p1backrow++;
 
-                    if (king(state->board[y][x]))
-                    {
+                    // Check for exposed pieces.
+                    // For p1, any piece can be exposed, if slots behind it are open.
+                    if (y > 0 && x > 0 && x < 7)
+                        if (empty(state->board[y-1][x-1]) || empty(state->board[y-1][x+1]))
+                            p1exposed += 1;
+
+                } else {
+                    p2pieces++;
+                    if(king(ch))
                         p2kings++;
-                        if (y == 3 || y == 5)
-                            p2center += 3;
-                        if (y < 2 && (x < 2 || x > 5))
-                            p2stuckkings += 1;
-                    }
-                    else
-                    {
-                        p2piece++;
-                        if (y == 3 || y == 5)
-                            p2center += 2;
-                    }
-                    if (isExposed(state->board, x, y, 2))
-                        p2exposed += 1;
+
+                    if(y > 5)
+                        p2backrow++;
+
+                    if (y < 7 && x > 0 && x < 7)
+                        if (empty(state->board[y+1][x-1]) || empty(state->board[y+1][x+1]))
+                            p2exposed += 1;
                 }
-            }
+           }
         }
     }
 
-    // Run a loop to calculate distance between friend pieces,
-    // so that they can "come closer".
-    int p1diff = 0;
-    int p2diff = 0;
-    for (int i = 0; i < p1posindex; i++)
-        for (int j = 0; j < p1posindex; j++)
-            p1diff += (p1positionsx[j] - p1positionsx[i]) * (p1positionsx[j] - p1positionsx[i]) + (p1positionsy[j] - p1positionsy[i]) * (p1positionsy[j] - p1positionsy[i]);
+    // // Increase everything (prevent inf. division) (TOGGLE ON WHILE USING RATIO HEURISTICS)
+    // p1pieces += 1;
+    // p2pieces += 1;
+    // p1kings += 1;
+    // p2kings += 1;
 
-    for (int i = 0; i < p2posindex; i++)
-        for (int j = 0; j < p2posindex; j++)
-            p2diff += (p2positionsx[j] - p2positionsx[i]) * (p2positionsx[j] - p2positionsx[i]) + (p2positionsy[j] - p2positionsy[i]) * (p2positionsy[j] - p2positionsy[i]);
+    score = (p1pieces - p2pieces) * 1.2 + (p1kings - p2kings) * 1.8;
 
-    // Add 1 to each piece count, so that we don't have inf. division.
-    p1piece += 1;
-    p2piece += 1;
-
-    double score = 0.0;
-
-    if (maxplayer == 1 && p2piece < 6)
-        randomseltoggle = 1;
-    if (maxplayer == 2 && p1piece < 6)
-        randomseltoggle = 1;
-
-    if (randomseltoggle && maxplayer == 1)
-        score += p1diff * clusterscore;
-
-    if (randomseltoggle && maxplayer == 2)
-        score += p2diff * clusterscore;
-
-    score += ((double)p1piece - (double)p2piece) * piecediff + ((double)p1kings - (double)p2kings) * kingsdiff - ((double)p1exposed - (double)p2exposed) * exposeddiff + ((double)p1backrow - (double)p2backrow) * backrowmultiplier;
+    // Dump everything here.
+    fprintf(stderr, "For p1, pieces=%f, kings=%f, exposed=%f, backrow=%f\n", p1pieces, p1kings, p1exposed,  p1backrow);
 
     if (maxplayer == 1)
-        return score + (double)p1center * centercount - p2kings * 100 + evalSupportPieces(state, 1);
-    else
-        return -score + (double)p2center * centercount - p1kings * 100 + evalSupportPieces(state, 2);
+        return score + p1backrow - p1exposed;
+
+    return -score + p2backrow - p2exposed;
 }
 
 double minmax_ab(struct State state, int maxplayer, int depth, double alpha, double beta)
 {
+    if (timeup())
+        return -0.0;
+
     if (depth-- == 0)
     {
         return evalRat(&state, maxplayer);
@@ -353,9 +432,9 @@ double minmax_ab(struct State state, int maxplayer, int depth, double alpha, dou
 
     return score;
 }
-void id_search(IDSArgs_t args);
+void id_search();
 
-void id_search(IDSArgs_t arguments)
+void id_search()
 {
     State state = arguments.state;
     int player = arguments.player;
@@ -364,8 +443,29 @@ void id_search(IDSArgs_t arguments)
     int depth = 5;
     double bestMoveScore;
 
-    while (depth++ < 7)
+    // Shuffle the numLegalMoves list.
+    int *numlegalmoves = (int *)calloc(sizeof(int), state.numLegalMoves);
+    for (int i = 0; i < state.numLegalMoves; i++)
     {
+        numlegalmoves[i] = i;
+    }
+    for (int i = 0; i < state.numLegalMoves; i++)
+    {
+        for (int j = 0; j < state.numLegalMoves; j++)
+        {
+            int i1 = rand() % state.numLegalMoves, i2 = rand() % state.numLegalMoves;
+            int t = numlegalmoves[i1];
+            numlegalmoves[i1] = numlegalmoves[i2];
+            numlegalmoves[i2] = t;
+        }
+    }
+    // End of shuffle.
+
+    while (depth++ < 100) // Had to put this to prevent a bug with very long "search" trees.
+    {
+        if (timeup())
+            return;
+
         int bestmovesarr[100];
         int bestmovescount = 0;
         bestMoveScore = -DBL_MAX;
@@ -375,31 +475,16 @@ void id_search(IDSArgs_t arguments)
         fprintf(stderr, "Game eval on default: %f\n", evalRat(&state, player));
         fprintf(stderr, "@@@@@@@@\nHave %d moves to explore for player %d\n", state.numLegalMoves, player);
 
-        // Shuffle the numLegalMoves list.
-        int *numlegalmoves = (int *)calloc(sizeof(int), state.numLegalMoves);
         for (int i = 0; i < state.numLegalMoves; i++)
         {
-            numlegalmoves[i] = i;
-        }
-        for (int i = 0; i < state.numLegalMoves; i++)
-        {
-            for (int j = 0; j < state.numLegalMoves; j++)
-            {
-                int i1 = rand() % state.numLegalMoves, i2 = rand() % state.numLegalMoves;
-                int t = numlegalmoves[i1];
-                numlegalmoves[i1] = numlegalmoves[i2];
-                numlegalmoves[i2] = t;
-            }
-        }
-        // End of shuffle.
+            if (timeup())
+                return;
 
-        for (int i = 0; i < state.numLegalMoves; i++)
-        {
             State newState;
             memcpy(&newState, &state, sizeof(struct State));
             performMove(&newState, numlegalmoves[i]);
 
-            double score = minmax_ab(newState, player, depth, -DBL_MAX, DBL_MAX);
+            double score = minmax_ab(newState, player, depth, -DBL_MAX, DBL_MAX) + evalRat(&newState, player);
             fprintf(stderr, "Score for move %d is %f\n", numlegalmoves[i], score);
             if (score >= bestMoveScore)
             {
@@ -432,6 +517,7 @@ void FindBestMove(int player, char board[8][8], char *bestmove)
     // int centercount;
     // int stuckcount;
     // int backrowmultiplier;
+    reset_timer(&timer);
 
     FILE *fp = fopen("./params.txt", "r+");
     if (fp == NULL)
@@ -459,7 +545,7 @@ void FindBestMove(int player, char board[8][8], char *bestmove)
     arguments.state = state;
     arguments.start = start;
 
-    id_search(arguments);
+    id_search();
     fprintf(stderr, "ids search returned %d as best move.\n-----\n", ids_retval);
     safeCopy(bestmove, state.movelist[ids_retval], MaxMoveLength, MoveLength(state.movelist[ids_retval]));
 }
